@@ -4,7 +4,6 @@
 //% weight=100 color=#3498db icon="\uf11b" block="Elvira Mando"
 namespace ElviraMando {
 
-    // An internal variable to remember what channel this micro:bit is on
     let currentChannel = 1;
 
     /**
@@ -15,31 +14,40 @@ namespace ElviraMando {
     //% channel.min=1 channel.max=10 channel.defl=1
     //% weight=100
     export function startMando(channel: number): void {
-        // 1. Save the student's chosen channel
         currentChannel = channel;
 
-        // 2. Start the Bluetooth UART service (allows sending/receiving text)
         bluetooth.startUartService();
 
-        // 3. Set up the Handshake event! 
         bluetooth.onBluetoothConnected(function () {
-            // Show a checkmark so we visually know the connection started
             basic.showIcon(IconNames.Yes);
-
-            // CRITICAL FIX: Wait 1 second for the web app to finish setting up its listeners
             basic.pause(1000);
-
-            // Now that the web app is definitely listening, send the handshake!
             bluetooth.uartWriteString("HANDSHAKE:" + currentChannel);
         });
 
-        // 4. Set up a Disconnect event
         bluetooth.onBluetoothDisconnected(function () {
-            // Show an 'X' if the phone disconnects
-            basic.showIcon(IconNames.No);
+            // If disconnected, go back to showing the channel number
+            showChannel(currentChannel);
         });
 
-        // Show a hollow square on boot so the student knows it is waiting to pair
-        basic.showIcon(IconNames.Square);
+        // Show the channel number on boot
+        showChannel(currentChannel);
+    }
+
+    // Helper function to display the channel safely without scrolling
+    function showChannel(num: number) {
+        if (num === 10) {
+            // Draw a custom "|0" to prevent scrolling
+            let tenImage = images.createImage(`
+                # . # # #
+                # . # . #
+                # . # . #
+                # . # . #
+                # . # # #
+            `);
+            tenImage.showImage(0);
+        } else {
+            // Single digits 1-9 do not scroll natively
+            basic.showNumber(num);
+        }
     }
 }
