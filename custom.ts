@@ -89,16 +89,17 @@ namespace MandoBit {
             showChannel(channel);
         });
 
-        // 3. Integrated, filtered UART listener (optimized for compressed Hex Strings)
+        // 3. Integrated, filtered UART listener (Now with Rolling Header Support!)
         bluetooth.onUartDataReceived("\n", function () {
             let message = bluetooth.uartReadUntil("\n");
 
-            // ROBUST FILTER: Must be length 18 and start with PS2 sig "FF735A"
-            if (message.length == 18 && message.substr(0, 6) == "FF735A") {
+            // ROBUST FILTER: Must be length 18, and characters at index 2,3,4,5 MUST be "735A"
+            if (message.length == 18 && message.substr(2, 4) == "735A") {
 
-                lastValidPacketTime = input.runningTime(); // <--- ADDED: PET THE WATCHDOG
+                lastValidPacketTime = input.runningTime(); // PET THE WATCHDOG
 
                 // Parse and update internal state variables
+                // Note: We ignore the rolling counter at substr(0, 2), as it's just keeping Bluetooth awake
                 btn1State = parseInt("0x" + message.substr(6, 2)); // Byte 3
                 btn2State = parseInt("0x" + message.substr(8, 2)); // Byte 4
                 rJoyX = parseInt("0x" + message.substr(10, 2));   // Byte 5
