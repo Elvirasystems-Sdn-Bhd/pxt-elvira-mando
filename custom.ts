@@ -59,6 +59,7 @@ namespace MandoBit {
     let rJoyY = 0x80;
 
     let lastRawPacket = "Waiting for data...";
+    let lastValidPacketTime = 0; // <--- ADDED FOR WATCHDOG
 
     // ==========================================================
     // CONNECTION, PARSING, & DATA FILTERING
@@ -94,6 +95,9 @@ namespace MandoBit {
 
             // ROBUST FILTER: Must be length 18 and start with PS2 sig "FF735A"
             if (message.length == 18 && message.substr(0, 6) == "FF735A") {
+
+                lastValidPacketTime = input.runningTime(); // <--- ADDED: PET THE WATCHDOG
+
                 // Parse and update internal state variables
                 btn1State = parseInt("0x" + message.substr(6, 2)); // Byte 3
                 btn2State = parseInt("0x" + message.substr(8, 2)); // Byte 4
@@ -117,6 +121,24 @@ namespace MandoBit {
 
         // Show channel safely (dot for 10)
         showChannel(channel);
+
+        // 4. WATCHDOG FAILSAFE: Runs silently in the background (ADDED)
+        control.inBackground(function () {
+            while (true) {
+                // If 300ms have passed without a valid packet...
+                if (input.runningTime() - lastValidPacketTime > 300) {
+                    // FORCE IDLE STATE (Brakes!)
+                    btn1State = 0xFF;
+                    btn2State = 0xFF;
+                    lJoyX = 0x80; // 128 (Center)
+                    lJoyY = 0x80;
+                    rJoyX = 0x80;
+                    rJoyY = 0x80;
+                    lastRawPacket = "FF 73 5A FF FF 80 80 80 80 (FAILSAFE)";
+                }
+                basic.pause(50); // Check the dog every 50ms
+            }
+        });
     }
 
     function showChannel(num: number) {
@@ -189,6 +211,16 @@ namespace MandoBit {
     //% group="Analogs"
     export function getRightJoyX(): number {
         return rJoyX;
+    }
+
+    /**
+     * Returns the raw value (0-255) of the Right Analog Y axis
+     */
+    //% block="Right Joy Y"
+    //% weight=77 blockGap=8
+    //% group="Analogs"
+    export function getRightJoyY(): number {
+        return rJoyY;
     }
 
     /**
