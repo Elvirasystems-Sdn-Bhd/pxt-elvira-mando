@@ -1,53 +1,203 @@
 /**
  * Blocks for Elvira MandoBit Controller
  */
-//% weight=100 color=#3498db icon="\uf11b" block="Elvira Mando"
-namespace ElviraMando {
+//% weight=100 color=#e74c3c icon="\uf11b" block="MandoBit"
+namespace MandoBit {
+    // ==========================================================
+    // ENUMS (PS2 standard active LOW button masks based on legend)
+    // ==========================================================
+    // Masks for Byte 3 (user's btn1, indices 6-7 in hex string)
+    export enum MandoButton1 {
+        //% block="SELECT"
+        Select = 1 << 0,
+        //% block="L3 (Joy Click)"
+        L3 = 1 << 1,
+        //% block="R3 (Joy Click)"
+        R3 = 1 << 2,
+        //% block="START"
+        Start = 1 << 3,
+        //% block="UP"
+        Up = 1 << 4,
+        //% block="RIGHT"
+        Right = 1 << 5,
+        //% block="DOWN"
+        Down = 1 << 6,
+        //% block="LEFT"
+        Left = 1 << 7
+    }
 
-    let currentChannel = 1;
+    // Masks for Byte 4 (user's btn2, indices 8-9 in hex string)
+    export enum MandoButton2 {
+        //% block="L2"
+        L2 = 1 << 0,
+        //% block="R2"
+        R2 = 1 << 1,
+        //% block="L1"
+        L1 = 1 << 2,
+        //% block="R1"
+        R1 = 1 << 3,
+        //% block="Triangle"
+        Triangle = 1 << 4,
+        //% block="Circle"
+        Circle = 1 << 5,
+        //% block="Cross"
+        Cross = 1 << 6,
+        //% block="Square"
+        Square = 1 << 7
+    }
 
+    // ==========================================================
+    // STATE VARIABLES (Namespace internal state)
+    // ==========================================================
+    // Start with all bits high (not pressed) for buttons, 
+    // and neutral (128) for analogs
+    let btn1State = 0xFF;
+    let btn2State = 0xFF;
+    let lJoyX = 0x80;
+    let lJoyY = 0x80;
+    let rJoyX = 0x80;
+    let rJoyY = 0x80;
+
+    let lastRawPacket = "Waiting for data...";
+
+    // ==========================================================
+    // CONNECTION, PARSING, & DATA FILTERING
+    // ==========================================================
     /**
-     * Initializes the Elvira Mando Gamepad connection
+     * Initializes the MandoBit connection and starts the UART listener
      * @param channel The channel number for this robot (1 to 10), eg: 1
      */
-    //% block="Start Elvira Mando on Channel $channel"
+    //% block="Start MandoBit on Channel $channel"
     //% channel.min=1 channel.max=10 channel.defl=1
     //% weight=100
-    export function startMando(channel: number): void {
-        currentChannel = channel;
-
+    export function startMando(channel: number = 1): void {
         bluetooth.startUartService();
 
+        // 1. Send handshake on connect
         bluetooth.onBluetoothConnected(function () {
             basic.showIcon(IconNames.Yes);
             basic.pause(1000);
-            bluetooth.uartWriteString("HANDSHAKE:" + currentChannel);
+            bluetooth.uartWriteString("HANDSHAKE:" + channel);
         });
 
+        // 2. Clear state on disconnect
         bluetooth.onBluetoothDisconnected(function () {
-            // If disconnected, go back to showing the channel number
-            showChannel(currentChannel);
+            btn1State = 0xFF;
+            btn2State = 0xFF;
+            // Go back to showing the channel number
+            showChannel(channel);
         });
 
-        // Show the channel number on boot
-        showChannel(currentChannel);
+        // 3. Integrated, filtered UART listener (optimized for compressed Hex Strings)
+        bluetooth.onUartDataReceived("\n", function () {
+            let message = bluetooth.uartReadUntil("\n");
+
+            // ROBUST FILTER: Must be length 18 and start with PS2 sig "FF735A"
+            if (message.length == 18 && message.substr(0, 6) == "FF735A") {
+                // Parse and update internal state variables
+                btn1State = parseInt("0x" + message.substr(6, 2)); // Byte 3
+                btn2State = parseInt("0x" + message.substr(8, 2)); // Byte 4
+                rJoyX = parseInt("0x" + message.substr(10, 2));   // Byte 5
+                rJoyY = parseInt("0x" + message.substr(12, 2));   // Byte 6
+                lJoyX = parseInt("0x" + message.substr(14, 2));   // Byte 7
+                lJoyY = parseInt("0x" + message.substr(16, 2));   // Byte 8
+
+                // Format the string with spaces for the monitor
+                lastRawPacket = message.substr(0, 2) + " " +
+                    message.substr(2, 2) + " " +
+                    message.substr(4, 2) + " " +
+                    message.substr(6, 2) + " " +
+                    message.substr(8, 2) + " " +
+                    message.substr(10, 2) + " " +
+                    message.substr(12, 2) + " " +
+                    message.substr(14, 2) + " " +
+                    message.substr(16, 2);
+            }
+        });
+
+        // Show channel safely (dot for 10)
+        showChannel(channel);
     }
 
-    // Helper function to display the channel safely without scrolling
     function showChannel(num: number) {
         if (num === 10) {
-            // Draw a custom "|0" to prevent scrolling
-            let tenImage = images.createImage(`
+            basic.showLeds(`
                 # . # # #
                 # . # . #
                 # . # . #
                 # . # . #
                 # . # # #
-            `);
-            tenImage.showImage(0);
+                `)
         } else {
-            // Single digits 1-9 do not scroll natively
             basic.showNumber(num);
         }
+    }
+
+    // ==========================================================
+    // GETTER BLOCKS (Used in logic block programming)
+    // ==========================================================
+    /**
+     * Checks if a button from the first button group (DPAD, SELECT, START) is pressed
+     * @param button The specific button to check, eg: MandoButton1.Up
+     */
+    //% block="MandoBit 1 %button is pressed"
+    //% weight=90 blockGap=8
+    //% group="Buttons"
+    export function isButton1Pressed(button: MandoButton1): boolean {
+        // Active LOW logic: return true when bit is 0
+        return !(btn1State & button);
+    }
+
+    /**
+     * Checks if a button from the second button group (TRIGGERS, SHAPES, CROSS/CIRCLE) is pressed
+     * @param button The specific button to check, eg: MandoButton2.Triangle
+     */
+    //% block="MandoBit 2 %button is pressed"
+    //% weight=89 blockGap=8
+    //% group="Buttons"
+    export function isButton2Pressed(button: MandoButton2): boolean {
+        // Active LOW logic: return true when bit is 0
+        return !(btn2State & button);
+    }
+
+    // Add analog getters for completeness, as they are essential
+    /**
+     * Returns the raw value (0-255) of the Left Analog X axis
+     */
+    //% block="Left Joy X"
+    //% weight=80 blockGap=8
+    //% group="Analogs"
+    export function getLeftJoyX(): number {
+        return lJoyX;
+    }
+
+    /**
+     * Returns the raw value (0-255) of the Left Analog Y axis
+     */
+    //% block="Left Joy Y"
+    //% weight=79 blockGap=8
+    //% group="Analogs"
+    export function getLeftJoyY(): number {
+        return lJoyY;
+    }
+
+    /**
+     * Returns the raw value (0-255) of the Right Analog X axis
+     */
+    //% block="Right Joy X"
+    //% weight=78 blockGap=8
+    //% group="Analogs"
+    export function getRightJoyX(): number {
+        return rJoyX;
+    }
+
+    /**
+     * Returns the raw hexadecimal packet formatted with spaces
+     */
+    //% block="Raw Bluetooth Packet"
+    //% weight=50 blockGap=8
+    //% group="Debug"
+    export function getRawPacket(): string {
+        return lastRawPacket;
     }
 }
